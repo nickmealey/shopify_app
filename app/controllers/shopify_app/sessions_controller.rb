@@ -61,6 +61,38 @@ module ShopifyApp
       redirect_to(auth_attributes[:auth_route], allow_other_host: true)
     end
 
+    def authenticate_with_partitioning
+      if session['shopify.cookies_persist']
+        clear_top_level_oauth_cookie
+        authenticate_in_context
+      else
+        set_top_level_oauth_cookie
+        enable_cookie_access
+      end
+    end
+
+    # rubocop:disable Lint/SuppressedException
+    def set_user_tokens_option
+      if shop_session.blank? || shop_session.domain != sanitized_shop_name
+        session[:user_tokens] = false
+        return
+      end
+
+      session[:user_tokens] = ShopifyApp::SessionRepository.user_storage.present?
+
+      ShopifyAPI::Session.temp(
+        domain: shop_session.domain,
+        token: shop_session.token,
+        api_version: shop_session.api_version
+      ) do
+        ShopifyAPI::Metafield.find(:token_validity_bogus_check)
+      end
+    rescue ActiveResource::UnauthorizedAccess
+      session[:user_tokens] = false
+    rescue StandardError
+    end
+    # rubocop:enable Lint/SuppressedException
+
     def validate_shop_presence
       @shop = sanitized_shop_name
       unless @shop
